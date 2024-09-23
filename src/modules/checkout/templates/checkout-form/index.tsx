@@ -1,45 +1,36 @@
-import {
-  createPaymentSessions,
-  getCustomer,
-  listCartShippingMethods,
-} from "@lib/data"
-import { getCheckoutStep } from "@lib/util/get-checkout-step"
+import { listCartShippingMethods } from "@lib/data/fulfillment"
+import { listCartPaymentMethods } from "@lib/data/payment"
+import { HttpTypes } from "@medusajs/types"
 import Addresses from "@modules/checkout/components/addresses"
 import Payment from "@modules/checkout/components/payment"
 import Review from "@modules/checkout/components/review"
 import Shipping from "@modules/checkout/components/shipping"
-import { cookies } from "next/headers"
-import { CartWithCheckoutStep } from "types/global"
 
-export default async function CheckoutForm() {
-  const cartId = cookies().get("_medusa_cart_id")?.value
-
-  if (!cartId) {
-    return null
-  }
-
-  // create payment sessions and get cart
-  const cart = (await createPaymentSessions(cartId).then(
-    (cart) => cart
-  )) as CartWithCheckoutStep
-
+export default async function CheckoutForm({
+  cart,
+  customer,
+}: {
+  cart: HttpTypes.StoreCart | null
+  customer: HttpTypes.StoreCustomer | null
+}) {
   if (!cart) {
     return null
   }
 
-  cart.checkout_step = cart && getCheckoutStep(cart)
+  const _shippingMethods = await listCartShippingMethods(cart.id)
+  const paymentMethods = await listCartPaymentMethods(cart.region?.id ?? "")
 
-  // get available shipping methods
-  const availableShippingMethods = await listCartShippingMethods(cart.id).then(
-    (methods) => methods?.filter((m) => !m.is_return)
-  )
+  // only options that are enabled in store will be returned,
+  // here we only need to filter ones that are not return options
+  const shippingMethods = _shippingMethods.filter((sm) => {
+    return !sm.rules.some(
+      (rule) => rule.attribute === "is_return" && rule.value === "true"
+    )
+  })
 
-  if (!availableShippingMethods) {
+  if (!shippingMethods || !paymentMethods) {
     return null
   }
-
-  // get customer if logged in
-  const customer = await getCustomer()
 
   return (
     <div>
@@ -49,14 +40,11 @@ export default async function CheckoutForm() {
         </div>
 
         <div>
-          <Shipping
-            cart={cart}
-            availableShippingMethods={availableShippingMethods}
-          />
+          <Shipping cart={cart} availableShippingMethods={shippingMethods} />
         </div>
 
         <div>
-          <Payment cart={cart} />
+          <Payment cart={cart} availablePaymentMethods={paymentMethods} />
         </div>
 
         <div>
